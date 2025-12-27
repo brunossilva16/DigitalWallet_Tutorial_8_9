@@ -10,6 +10,10 @@ pynguin --project-path . --module-name src.wallet --output-path tests
 
 pip install pytest
 
+$env:PYTHONPATH = "$PWD"
+pytest tests/
+
+
 pytest tests/
 
 coverage run --branch -m pytest tests/test_src_wallet.py
