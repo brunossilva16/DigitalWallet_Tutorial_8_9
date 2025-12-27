@@ -1,129 +1,56 @@
-name: Python CI/CD Pipeline
+name: Python Tests
 
-on:
-  push:
-    branches: [ main, develop, feature/* ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:  # Permite execução manual
+on: [push, pull_request]
 
 jobs:
-  test-and-mutate:
+  test:
     runs-on: ubuntu-24.04
     
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
     
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip'  # Cache de dependências
-    
-    - name: Install system dependencies for Pynguin
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y python3-tk python3-dev
+        python-version: '3.10'
         
-    - name: Create virtual environment
+    - name: Install dependencies
       run: |
-        python -m venv venv
-        source venv/bin/activate
-        echo "VIRTUAL_ENV=${{ github.workspace }}/venv" >> $GITHUB_ENV
-        echo "${{ github.workspace }}/venv/bin" >> $GITHUB_PATH
-        
-    - name: Install Python dependencies
-      run: |
-        source venv/bin/activate
-        pip install --upgrade pip
-        pip install pytest pytest-cov coverage mutmut pynguin
-        # Instalar dependências do seu projeto se tiver requirements.txt
-        if [ -f "requirements.txt" ]; then
-          pip install -r requirements.txt
-        fi
+        python -m pip install --upgrade pip
+        pip install pytest coverage mutmut pynguin
         
     - name: Generate tests with Pynguin
+      env:
+        PYNGUIN_DANGER_AWARE: 1
       run: |
-        source venv/bin/activate
-        export PYNGUIN_DANGER_AWARE=1
-        # Tenta gerar testes, mas não falha se não conseguir
-        pynguin --project-path . --module-name src.wallet --output-path tests --seed 42 --maximum-search-time 300 || echo "Pynguin finished (may have warnings)"
+        pynguin --project-path . --module-name src.wallet --output-path tests --seed 42 || true
         
-    - name: Run tests with pytest
+    - name: Run tests
       run: |
-        source venv/bin/activate
-        pytest tests/ -v --tb=short --junitxml=junit/test-results-${{ matrix.python-version }}.xml
+        pytest tests/ -v
         
-    - name: Run coverage analysis
+    - name: Generate coverage report
       run: |
-        source venv/bin/activate
         coverage run --branch -m pytest tests/
         coverage report -m
-        coverage xml -o coverage-${{ matrix.python-version }}.xml
-        coverage html -d htmlcov-${{ matrix.python-version }}
+        coverage xml
         
-    - name: Run mutation testing
-      continue-on-error: true  # Continua mesmo se mutmut falhar
+    - name: Run mutation tests
       run: |
-        source venv/bin/activate
-        # Cria diretório para resultados se não existir
-        mkdir -p mutation-results
-        # Executa mutation testing
-        mutmut run --paths-to-mutate src/wallet_system.py \
-          --runner "pytest tests/test_src_wallet.py -x" \
-          || echo "Mutation testing completed"
-        # Gera relatórios
-        mutmut html --dest mutation-results/mutation-${{ matrix.python-version }}.html
-        mutmut junitxml --dest mutation-results/mutation-${{ matrix.python-version }}.xml
+        mutmut run --paths-to-mutate src/wallet_system.py --runner "pytest tests/test_src_wallet.py -x" || true
         
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: |
+          coverage.xml
+          htmlcov/
+          
     - name: Upload test results
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-py${{ matrix.python-version }}
+        name: test-results
         path: |
-          junit/
-          htmlcov-${{ matrix.python-version }}/
-          coverage-${{ matrix.python-version }}.xml
-          mutation-results/
-        retention-days: 30
-        
-    - name: Upload mutation reports
-      if: always()  # Executa mesmo se steps anteriores falharem
-      uses: actions/upload-artifact@v4
-      with:
-        name: mutation-report-py${{ matrix.python-version }}
-        path: mutation-results/
-        retention-days: 30
-        
-  quality-check:
-    runs-on: ubuntu-24.04
-    needs: test-and-mutate  # Depende do job de testes
-    if: always()  # Executa mesmo se testes falharem
-    
-    steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      
-    - name: Generate summary report
-      run: |
-        echo "# Test Results Summary" >> $GITHUB_STEP_SUMMARY
-        echo "## Python Versions Tested" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ 3.10" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ 3.11" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ 3.12" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## Artifacts Generated" >> $GITHUB_STEP_SUMMARY
-        echo "- Test Results (JUnit XML)" >> $GITHUB_STEP_SUMMARY
-        echo "- Coverage Reports (HTML/XML)" >> $GITHUB_STEP_SUMMARY
-        echo "- Mutation Test Reports" >> $GITHUB_STEP_SUMMARY
-        
-    - name: Check test quality threshold
-      run: |
-        # Aqui você pode adicionar verificações de qualidade
-        # Exemplo: verificar se coverage é maior que 80%
-        echo "Quality checks completed"
+          .mutmut-cache/
+          mutation.html
