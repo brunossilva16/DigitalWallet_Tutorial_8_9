@@ -79,6 +79,12 @@ jobs:
         coverage run --branch -m pytest tests/ --import-mode=append
         coverage report -m
         coverage xml
+
+    - name: Run coverage HTML report
+      continue-on-error: true
+      run: |
+        coverage report -m
+        coverage html
         
     - name: Run mutation testing
       continue-on-error: true
