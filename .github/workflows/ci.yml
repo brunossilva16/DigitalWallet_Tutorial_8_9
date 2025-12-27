@@ -53,7 +53,6 @@ jobs:
         fi
         
     - name: Generate tests with Pynguin
-      continue-on-error: true
       env:
         PYNGUIN_DANGER_AWARE: 1
         PYTHONPATH: ${{ github.workspace }}
@@ -65,6 +64,7 @@ jobs:
         pynguin --project-path . --module-name src.wallet --output-path tests --seed 42 || echo "Pynguin completed"
         
     - name: Run tests
+      continue-on-error: true
       env:
         PYTHONPATH: ${{ github.workspace }}
       run: |
