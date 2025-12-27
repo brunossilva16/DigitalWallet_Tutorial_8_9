@@ -22,179 +22,110 @@ jobs:
       run: |
         echo "PYTHONPATH=${{ github.workspace }}" >> $GITHUB_ENV
         echo "Current directory: $(pwd)"
+        echo "Directory structure:"
+        find . -type f -name "*.py" | head -20
         
     - name: Install dependencies
       run: |
         pip install --upgrade pip
-        # Instala versões específicas compatíveis
-        pip install pytest coverage "mutmut>=3.0.0" pynguin
+        pip install pytest coverage mutmut pynguin
         
-    - name: Debug mutmut version
+    - name: Debug - Show project structure
       run: |
-        echo "Mutmut version:"
-        python -c "import mutmut; print(f'mutmut version: {mutmut.__version__}')" 2>/dev/null || echo "Could not get mutmut version"
+        echo "=== Project Structure ==="
+        ls -la
+        echo ""
+        echo "=== src directory ==="
+        ls -la src/ 2>/dev/null || echo "src/ not found"
+        echo ""
+        echo "=== tests directory ==="
+        ls -la tests/ 2>/dev/null || echo "tests/ not found"
         
-    - name: Generate tests with Pynguin (continue on error)
+    - name: Fix test imports (if needed)
+      run: |
+        # Corrige imports nos testes gerados
+        if [ -f "tests/test_src_wallet.py" ]; then
+          echo "Fixing imports in test files..."
+          # Opção 1: Alterar import absoluto para relativo
+          sed -i 's/import src.wallet as module_0/from src import wallet as module_0/g' tests/test_src_wallet.py 2>/dev/null || true
+          # Opção 2: Adicionar sys.path
+          sed -i '1i import sys\nsys.path.insert(0, ".")' tests/test_src_wallet.py 2>/dev/null || true
+        fi
+        
+    - name: Generate tests with Pynguin
       continue-on-error: true
       env:
         PYNGUIN_DANGER_AWARE: 1
         PYTHONPATH: ${{ github.workspace }}
       run: |
-        echo "🔄 Generating tests with Pynguin..."
-        rm -rf tests/ 2>/dev/null || true
-        mkdir -p tests
+        # Primeiro verifica se o módulo existe
+        python -c "import sys; sys.path.insert(0, '.'); from src import wallet; print('Module found!')" 2>/dev/null || echo "Module check failed"
         
-        pynguin --project-path . --module-name src.wallet --output-path tests --seed 42 --maximum-search-time 60
-        
-        echo "Pynguin execution completed"
-        
-    - name: Fix test imports
-      run: |
-        if [ -f "tests/test_src_wallet.py" ]; then
-          echo "Fixing imports..."
-          sed -i '1i import sys\nsys.path.insert(0, ".")' tests/test_src_wallet.py 2>/dev/null || true
-        fi
+        # Gera testes
+        pynguin --project-path . --module-name src.wallet --output-path tests --seed 42 || echo "Pynguin completed"
         
     - name: Run tests
-      continue-on-error: true
       env:
         PYTHONPATH: ${{ github.workspace }}
       run: |
-        echo "🧪 Running tests..."
-        
-        if [ ! -f "tests/test_src_wallet.py" ]; then
-          echo "No tests generated. Creating dummy test..."
-          echo "def test_dummy():" > tests/test_dummy.py
-          echo "    assert True" >> tests/test_dummy.py
-        fi
-        
-        pytest tests/ -v --import-mode=append --tb=short || echo "Some tests failed"
+        echo "Running tests with PYTHONPATH=$PYTHONPATH"
+        pytest tests/ -v --import-mode=append
         
     - name: Run coverage
-      continue-on-error: true
       env:
         PYTHONPATH: ${{ github.workspace }}
       run: |
-        echo "📊 Running coverage..."
-        coverage run --branch -m pytest tests/ --import-mode=append || true
+        coverage run --branch -m pytest tests/ --import-mode=append
         coverage report -m
         coverage xml
         
-    - name: Configure mutation testing
-      run: |
-        echo "🔧 Configuring mutation testing..."
-        # Cria configuração básica para mutmut
-        cat > .mutmut.toml << EOF
-        [tool.mutmut]
-        paths_to_mutate = ["src/"]
-        tests_dir = "tests/"
-        runner = "pytest --import-mode=append -x"
-        test_time_multiplier = 2.0
-        test_time_base = 0.0
-        exclude = []
-        
-        [tool.mutmut.paths_to_exclude]
-        # Exclui arquivos específicos se necessário
-        # "__init__.py" = "Initialization files"
-        EOF
-        
-        # Verifica estrutura
-        echo "Project structure for mutation:"
-        find src/ -name "*.py" 2>/dev/null || echo "No Python files in src/"
-        
-    - name: Run mutation testing (NEW SYNTAX)
+    - name: Run mutation testing
       continue-on-error: true
       env:
         PYTHONPATH: ${{ github.workspace }}
-        MUTMUT_NO_PROGRESS_BAR: "true"
       run: |
-        echo "🧬 Running mutation testing (new syntax)..."
-        
-        # Verifica se mutmut está instalado e mostra ajuda
-        mutmut --help || true
-        echo ""
-        echo "Mutmut run help:"
-        mutmut run --help 2>/dev/null | head -20 || true
-        
-        # Opção 1: Sintaxe moderna (mutmut 3.0+)
-        echo ""
-        echo "Trying modern mutmut syntax..."
-        
-        # Primeiro, tenta a sintaxe mais nova
-        if command -v mutmut > /dev/null 2>&1; then
-          # Lista os arquivos a mutar
-          MUTATION_FILES=$(find src/ -name "*.py" | head -5)
-          echo "Files to mutate: $MUTATION_FILES"
-          
-          # Tenta diferentes sintaxes
-          echo "Attempt 1: Using paths-to-mutate argument..."
-          mutmut run --paths-to-mutate="src/" || \
-          echo "Attempt 1 failed, trying alternative..."
-          
-          echo "Attempt 2: Using default configuration..."
-          mutmut run || \
-          echo "Attempt 2 failed, trying manual mutation..."
-          
-          echo "Attempt 3: Manual mutation commands..."
-          # Para cada arquivo Python em src/
-          for file in $(find src/ -name "*.py"); do
-            echo "Mutating $file..."
-            mutmut run $file --runner "python -m pytest tests/ --import-mode=append -x" || \
-            echo "Failed to mutate $file"
-          done
-        else
-          echo "mutmut command not found"
-        fi
-        
-        echo "Mutation testing phase completed"
-        
-    - name: Generate mutation reports if available
-      if: always()
-      env:
-        PYTHONPATH: ${{ github.workspace }}
-      run: |
-        echo "📄 Generating mutation reports..."
-        
-        # Tenta diferentes comandos para gerar relatórios
-        if command -v mutmut > /dev/null 2>&1; then
-          # Tenta gerar relatório HTML
-          echo "Generating HTML report..."
-          mutmut html 2>/dev/null && echo "HTML report generated" || \
-          mutmut results --html 2>/dev/null && echo "HTML report generated (alternative)" || \
-          echo "Could not generate HTML report"
-          
-          # Tenta gerar relatório JUnit
-          echo "Generating JUnit XML report..."
-          mutmut junitxml 2>/dev/null && echo "JUnit XML report generated" || \
-          echo "Could not generate JUnit XML report"
-          
-          # Mostra resultados
-          echo "Mutation results:"
-          mutmut results 2>/dev/null || mutmut show 2>/dev/null || echo "No mutation results available"
-        fi
+        mutmut run --paths-to-mutate src/wallet.py --runner "pytest tests/test_src_wallet.py --import-mode=append -x" || true
+        mutmut html
         
     - name: Upload artifacts
-      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-results
         path: |
           coverage.xml
-          .coverage
-          .mutmut-cache/
           htmlcov/
-          tests/
-          .mutmut.toml
-        retention-days: 7
-        
-    - name: Generate summary
+          mutation.html
+
+    - name: Generate summary report
       if: always()
       run: |
-        echo "# 🎯 CI/CD Pipeline Results" >> $GITHUB_STEP_SUMMARY
+        echo "# 📈 CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## 📊 Test Generation" >> $GITHUB_STEP_SUMMARY
-        echo "- Pynguin: Tests generated ✅" >> $GITHUB_STEP_SUMMARY
+        
+        # Conta testes gerados
+        TEST_COUNT=$(find tests/ -name "*.py" -type f 2>/dev/null | wc -l)
+        echo "## 📊 Statistics" >> $GITHUB_STEP_SUMMARY
+        echo "- Test files generated: $TEST_COUNT" >> $GITHUB_STEP_SUMMARY
+        
+        # Verifica se há arquivos de coverage
+        if [ -f "coverage.xml" ]; then
+          echo "- Coverage report: ✅ Generated" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- Coverage report: ❌ Not generated" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Verifica se há relatório de mutação
+        if [ -d "mutation-report" ] || [ -f "mutation.html" ]; then
+          echo "- Mutation report: ✅ Generated" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- Mutation report: ❌ Not generated" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 📁 Artifacts Available" >> $GITHUB_STEP_SUMMARY
+        echo "All artifacts are available for download in the Artifacts section." >> $GITHUB_STEP_SUMMARY
+        
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "## ⚠️ Note" >> $GITHUB_STEP_SUMMARY
-        echo "Mutation testing may have compatibility issues with newer mutmut versions." >> $GITHUB_STEP_SUMMARY
-        echo "Check artifacts for test generation results." >> $GITHUB_STEP_SUMMARY
+        echo "This pipeline is configured to **not fail** when tests or Pynguin have issues." >> $GITHUB_STEP_SUMMARY
+        echo "Check the artifacts for detailed results." >> $GITHUB_STEP_SUMMARY
