@@ -11,3 +11,19 @@ pynguin --project-path . --module-name src.wallet --output-path tests
 pip install pytest
 
 pytest tests/
+
+coverage run --branch -m pytest tests/test_src_wallet.py
+
+coverage report -m
+
+---- WSL ----
+
+wsl -u root
+
+pip install pytest mutmut coverage
+
+run mutmut
+
+mutmut results
+
+mutmut run --paths-to-mutate src/wallet_system.py --runner "pytest test/test_src_wallet_llm.py -x"
