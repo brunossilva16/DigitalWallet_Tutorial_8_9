@@ -61,7 +61,7 @@ jobs:
         python -c "import sys; sys.path.insert(0, '.'); from src import wallet; print('Module found!')" 2>/dev/null || echo "Module check failed"
         
         # Gera testes
-        pynguin --project-path . --module-name src.wallet --output-path tests --seed 42 || echo "Pynguin completed"
+        pynguin --project-path . --module-name src.wallet --output-path tests || echo "Pynguin completed"
         
     - name: Run tests
       continue-on-error: true
