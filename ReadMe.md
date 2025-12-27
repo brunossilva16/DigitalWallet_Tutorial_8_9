@@ -31,3 +31,5 @@ run mutmut
 mutmut results
 
 mutmut run --paths-to-mutate src/wallet_system.py --runner "pytest test/test_src_wallet_llm.py -x"
+
+pynguin --project-path . --module-name src.wallet --output-path tests --seed 42 || echo "Pynguin completed"
